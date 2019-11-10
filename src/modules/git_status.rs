@@ -29,15 +29,8 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
     let mut module = context.new_module("git_status");
     let config: GitStatusConfig = GitStatusConfig::try_load(module.config);
 
-    module
-        .get_prefix()
-        .set_value(config.prefix)
-        .set_style(config.style);
-    module
-        .get_suffix()
-        .set_value(config.suffix)
-        .set_style(config.style);
     module.set_style(config.style);
+    module.get_prefix().set_value("");
 
     let repo_status = get_repo_status(repository.borrow_mut());
     log::debug!("Repo status: {:?}", repo_status);
@@ -48,6 +41,22 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
     } else {
         log::debug!("Repo ahead/behind: {:?}", ahead_behind);
     }
+
+    let stash_object = repository.revparse_single("refs/stash");
+    if stash_object.is_ok() {
+        log::debug!("Stash object: {:?}", stash_object);
+    } else {
+        log::trace!("No stash object found");
+    }
+
+    let repo_status = get_repo_status(&repository);
+    log::debug!("Repo status: {:?}", repo_status);
+
+    if ahead_behind.is_err() && stash_object.is_err() && repo_status.is_err() {
+        return None;
+    }
+
+    module.create_segment("prefix", &SegmentConfig::new(config.prefix));
 
     // Add the conflicted segment
     if let Ok(repo_status) = repo_status {
@@ -160,9 +169,7 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
         );
     }
 
-    if module.is_empty() {
-        return None;
-    }
+    module.create_segment("suffix", &SegmentConfig::new(config.suffix));
 
     Some(module)
 }

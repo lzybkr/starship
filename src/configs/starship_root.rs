@@ -7,6 +7,8 @@ pub struct StarshipRootConfig<'a> {
     pub add_newline: bool,
     pub prompt_order: Vec<&'a str>,
     pub scan_timeout: u64,
+    pub default_prefix: &'a str,
+    pub default_suffix: &'a str,
 }
 
 impl<'a> RootModuleConfig<'a> for StarshipRootConfig<'a> {
@@ -53,6 +55,8 @@ impl<'a> RootModuleConfig<'a> for StarshipRootConfig<'a> {
                 "character",
             ],
             scan_timeout: 30,
+            default_prefix: "via ",
+            default_suffix: " ",
         }
     }
 }

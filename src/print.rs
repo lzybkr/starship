@@ -1,3 +1,4 @@
+use ansi_term::{ANSIStrings, Style};
 use clap::ArgMatches;
 use rayon::prelude::*;
 use std::fmt::Write as FmtWrite;
@@ -29,19 +30,21 @@ pub fn get_prompt(context: Context) -> String {
 
     let modules = compute_modules(&context);
 
+    let mut next_module_styles = modules
+        .iter()
+        .skip(1)
+        .map(|module| module.get_style())
+        .collect::<Vec<Style>>();
+    next_module_styles.push(Style::new());
+
     let mut print_without_prefix = true;
     let printable = modules.iter();
 
-    for module in printable {
+    for (module, next_style) in printable.zip(next_module_styles.iter()) {
         // Skip printing the prefix of a module after the line_break
-        if print_without_prefix {
-            let module_without_prefix = module.to_string_without_prefix();
-            write!(buf, "{}", module_without_prefix).unwrap()
-        } else {
-            write!(buf, "{}", module).unwrap();
-        }
-
-        print_without_prefix = module.get_name() == "line_break"
+        let ansi_strings = module.ansi_strings(print_without_prefix, next_style);
+        write!(buf, "{}", ANSIStrings(&ansi_strings)).unwrap();
+        print_without_prefix = module.get_name() == "line_break";
     }
 
     buf

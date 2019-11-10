@@ -12,9 +12,8 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
     let mut module = context.new_module("git_state");
     let config: GitStateConfig = GitStateConfig::try_load(module.config);
 
+    module.get_prefix().set_value("");
     module.set_style(config.style);
-    module.get_prefix().set_value("(");
-    module.get_suffix().set_value(") ");
 
     let repo = context.get_repo().ok()?;
     let repo_root = repo.root.as_ref()?;
@@ -30,6 +29,7 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
         }
     };
 
+    module.create_segment("prefix", &SegmentConfig::new("("));
     module.create_segment(label.name, &label.segment);
 
     if let StateDescription::LabelAndProgress(_, progress) = &state_description {
@@ -43,6 +43,7 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
             &SegmentConfig::new(&format!("{}", progress.total)),
         );
     }
+    module.create_segment("suffix", &SegmentConfig::new(")"));
 
     Some(module)
 }
