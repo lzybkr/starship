@@ -49,7 +49,7 @@ impl<'a> RootModuleConfig<'a> for GitStatusConfig<'a> {
             untracked: SegmentConfig::new("?"),
             untracked_count: CountConfig::default(),
             prefix: "[",
-            suffix: "] ",
+            suffix: "]",
             style: Color::Red.bold(),
             disabled: false,
         }

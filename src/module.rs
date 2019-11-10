@@ -1,4 +1,4 @@
-use crate::config::SegmentConfig;
+use crate::config::{SegmentConfig, StarshipConfig};
 use crate::segment::Segment;
 use ansi_term::Style;
 use ansi_term::{ANSIString, ANSIStrings};
@@ -61,14 +61,16 @@ pub struct Module<'a> {
 
 impl<'a> Module<'a> {
     /// Creates a module with no segments.
-    pub fn new(name: &str, config: Option<&'a toml::Value>) -> Module<'a> {
+    pub fn new(name: &str, config: &'a StarshipConfig) -> Module<'a> {
+        let root_config = config.get_root_config();
+
         Module {
-            config,
+            config: config.get_module_config(name),
             _name: name.to_string(),
             style: Style::default(),
-            prefix: Affix::default_prefix(name),
+            prefix: Affix::default_prefix(name, root_config.default_prefix),
             segments: Vec::new(),
-            suffix: Affix::default_suffix(name),
+            suffix: Affix::default_suffix(name, root_config.default_suffix),
         }
     }
 
@@ -102,6 +104,9 @@ impl<'a> Module<'a> {
         &mut self.suffix
     }
 
+    /// Get the module's style
+    pub fn get_style(&self) -> Style { self.style }
+
     /// Sets the style of the segment.
     ///
     /// Accepts either `Color` or `Style`.
@@ -110,12 +115,14 @@ impl<'a> Module<'a> {
         T: Into<Style>,
     {
         self.style = style.into();
+        self.prefix.set_style(self.style.clone());
+        self.suffix.set_style(self.style.clone());
         self
     }
 
     /// Returns a vector of colored ANSIString elements to be later used with
     /// `ANSIStrings()` to optimize ANSI codes
-    pub fn ansi_strings(&self) -> Vec<ANSIString> {
+    pub fn ansi_strings(&self, without_prefix: bool, next_style: &Style) -> Vec<ANSIString> {
         let shell = std::env::var("STARSHIP_SHELL").unwrap_or_default();
         let ansi_strings = self
             .segments
@@ -129,20 +136,26 @@ impl<'a> Module<'a> {
             _ => ansi_strings,
         };
 
-        ansi_strings.insert(0, self.prefix.ansi_string());
-        ansi_strings.push(self.suffix.ansi_string());
+        if !without_prefix {
+            ansi_strings.insert(0, self.prefix.ansi_string());
+        }
+
+        let mut style = Style::default();
+        if let Some(fg) = self.style.background {
+            style = style.fg(fg);
+        }
+        if let Some(bg) = next_style.background {
+            style = style.on(bg);
+        }
+        ansi_strings.push(style.paint(self.suffix.value.clone()));
 
         ansi_strings
-    }
-
-    pub fn to_string_without_prefix(&self) -> String {
-        ANSIStrings(&self.ansi_strings()[1..]).to_string()
     }
 }
 
 impl<'a> fmt::Display for Module<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let ansi_strings = self.ansi_strings();
+        let ansi_strings = self.ansi_strings(false, &Style::new());
         write!(f, "{}", ANSIStrings(&ansi_strings))
     }
 }
@@ -202,19 +215,19 @@ pub struct Affix {
 }
 
 impl Affix {
-    pub fn default_prefix(name: &str) -> Self {
+    pub fn default_prefix(name: &str, value: &str) -> Self {
         Self {
             _name: format!("{}_prefix", name),
             style: Style::default(),
-            value: "via ".to_string(),
+            value: value.to_string(),
         }
     }
 
-    pub fn default_suffix(name: &str) -> Self {
+    pub fn default_suffix(name: &str, value: &str) -> Self {
         Self {
             _name: format!("{}_suffix", name),
             style: Style::default(),
-            value: " ".to_string(),
+            value: value.to_string(),
         }
     }
 
@@ -261,9 +274,9 @@ mod tests {
             config: None,
             _name: name.to_string(),
             style: Style::default(),
-            prefix: Affix::default_prefix(name),
+            prefix: Affix::default_prefix(name, "via "),
             segments: Vec::new(),
-            suffix: Affix::default_suffix(name),
+            suffix: Affix::default_suffix(name, " "),
         };
 
         assert!(module.is_empty());
@@ -276,9 +289,9 @@ mod tests {
             config: None,
             _name: name.to_string(),
             style: Style::default(),
-            prefix: Affix::default_prefix(name),
+            prefix: Affix::default_prefix(name, "via "),
             segments: vec![Segment::new("test_segment")],
-            suffix: Affix::default_suffix(name),
+            suffix: Affix::default_suffix(name, " "),
         };
 
         assert!(module.is_empty());

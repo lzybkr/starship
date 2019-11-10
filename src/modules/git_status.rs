@@ -28,15 +28,8 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
     let mut module = context.new_module("git_status");
     let config: GitStatusConfig = GitStatusConfig::try_load(module.config);
 
-    module
-        .get_prefix()
-        .set_value(config.prefix)
-        .set_style(config.style);
-    module
-        .get_suffix()
-        .set_value(config.suffix)
-        .set_style(config.style);
     module.set_style(config.style);
+    module.get_prefix().set_value("");
 
     let ahead_behind = get_ahead_behind(&repository, branch_name);
     if ahead_behind == Ok((0, 0)) {
@@ -54,6 +47,12 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
 
     let repo_status = get_repo_status(&repository);
     log::debug!("Repo status: {:?}", repo_status);
+
+    if ahead_behind.is_err() && stash_object.is_err() && repo_status.is_err() {
+        return None;
+    }
+
+    module.create_segment("prefix", &SegmentConfig::new(config.prefix));
 
     // Add the conflicted segment
     if let Ok(repo_status) = repo_status {
@@ -160,9 +159,7 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
         );
     }
 
-    if module.is_empty() {
-        return None;
-    }
+    module.create_segment("suffix", &SegmentConfig::new(config.suffix));
 
     Some(module)
 }

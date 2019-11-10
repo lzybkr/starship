@@ -90,9 +90,7 @@ impl<'a> Context<'a> {
 
     /// Create a new module
     pub fn new_module(&self, name: &str) -> Module {
-        let config = self.config.get_module_config(name);
-
-        Module::new(name, config)
+        Module::new(name, &self.config)
     }
 
     /// Check if `disabled` option of the module is true in configuration file.
