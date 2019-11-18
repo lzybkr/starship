@@ -1,6 +1,5 @@
-use path_slash::PathExt;
-use std::path::Path;
 use unicode_segmentation::UnicodeSegmentation;
+use std::path::{Component, Path, PathBuf, Prefix};
 
 use super::{Context, Module};
 
@@ -20,6 +19,7 @@ use crate::configs::directory::DirectoryConfig;
 /// Paths will be limited in length to `3` path components by default.
 pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
     const HOME_SYMBOL: &str = "~";
+    const ELLIPSIS: &str = "\u{2026}";
 
     let mut module = context.new_module("directory");
     let config: DirectoryConfig = DirectoryConfig::try_load(module.config);
@@ -50,7 +50,80 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
 
     let repo = &context.get_repo().ok()?;
 
-    let dir_string = match &repo.root {
+    let home_dir_contracted = contract_path(&current_dir, &home_dir, HOME_SYMBOL);
+    let components = home_dir_contracted.components().collect::<Vec<_>>();
+    let (prefix, path_parts): (Vec<Component>, Vec<Component>) =
+        components.into_iter().partition(|c| match c {
+            Component::Prefix(_) | Component::RootDir => true,
+            _ => false,
+        });
+
+    let mut result = String::new();
+    let separator = get_separator();
+    for component in prefix {
+        match component {
+            Component::Prefix(prefix) => {
+                result.push_str(&get_windows_prefix(prefix.kind(), separator));
+            }
+            Component::RootDir => result.push_str(separator),
+            _ => unreachable!(),
+        }
+    }
+
+    let first_full_part = path_parts
+        .len()
+        .saturating_sub(config.truncation_length as usize);
+
+    let truncated_parts = &path_parts[0..first_full_part];
+    if truncated_parts.len() > 0 {
+        if config.fish_style_pwd_dir_length > 0 {
+            let truncated_part = truncated_parts
+                .iter()
+                .map(|c| match c {
+                    Component::CurDir => ".".to_string(),
+                    Component::ParentDir => "..".to_string(),
+                    Component::Normal(p) => p.to_string_lossy()
+                        [0..config.fish_style_pwd_dir_length as usize]
+                        .to_string(),
+                    _ => unreachable!(),
+                })
+                .collect::<Vec<_>>()
+                .join(separator);
+            result.push_str(&truncated_part);
+        } else {
+            // Replace truncated portion with ellipsis.
+            result.push_str(ELLIPSIS);
+        }
+        result.push_str(separator);
+    }
+
+    let full_part = path_parts[first_full_part..]
+        .iter()
+        .map(|c| match c {
+            Component::CurDir => ".".to_string(),
+            Component::ParentDir => "..".to_string(),
+            Component::Normal(p) => p.to_string_lossy().into_owned(),
+            _ => unreachable!(),
+        })
+        .collect::<Vec<_>>()
+        .join(separator);
+    result.push_str(&full_part);
+
+    module.create_segment(
+        "path",
+        &SegmentConfig {
+            value: &result,
+            style: None,
+        },
+    );
+
+    /*
+    if config.truncate_to_repo {
+        if let Some(repo_root) = &repo.root {
+            contract_path(&repo_root, &home_dir, HOME_SYMBOL);
+        }
+    }
+    let contracted_path = match &repo.root {
         Some(repo_root) if config.truncate_to_repo && (repo_root != &home_dir) => {
             let repo_folder_name = repo_root.file_name().unwrap().to_str().unwrap();
 
@@ -62,80 +135,108 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
     };
 
     // Truncate the dir string to the maximum number of path components
-    let truncated_dir_string = truncate(dir_string, config.truncation_length as usize);
+    let truncated_dir_string = truncate(&contracted_path, config.truncation_length as usize);
 
     if config.fish_style_pwd_dir_length > 0 {
         // If user is using fish style path, we need to add the segment first
-        let contracted_home_dir = contract_path(&current_dir, &home_dir, HOME_SYMBOL);
         let fish_style_dir = to_fish_style(
             config.fish_style_pwd_dir_length as usize,
             contracted_home_dir,
             &truncated_dir_string,
         );
-
-        module.create_segment(
-            "path",
-            &SegmentConfig {
-                value: &fish_style_dir,
-                style: None,
-            },
-        );
     }
 
-    module.create_segment(
-        "path",
-        &SegmentConfig {
-            value: &truncated_dir_string,
-            style: None,
-        },
-    );
+    */
 
     module.get_prefix().set_value(config.prefix);
 
     Some(module)
 }
 
+fn get_separator() -> &'static str {
+   match std::env::var("STARSHIP_SHELL").unwrap_or_default().as_str() {
+        "bash" | "zsh" | "fish" => "/",
+        _ => {
+            if cfg!(windows) {
+                "\\"
+            } else {
+                "/"
+            }
+        }
+    }
+}
+
+fn get_windows_prefix(prefix: Prefix, separator: &str) -> String {
+    let mut buf = String::with_capacity(3);
+
+    match prefix {
+        Prefix::Disk(disk) | Prefix::VerbatimDisk(disk) => {
+            // c: or \\?\c:
+            if separator.chars().next() == Some('/') {
+                buf.push('/');
+                buf.push((disk as char).to_ascii_lowercase());
+            } else {
+                buf.push((disk as char).to_ascii_lowercase());
+                buf.push(':');
+            }
+        }
+        Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => {
+            // \\server\share or // \\?\UNC\server\share
+            buf.push_str(separator);
+            buf.push_str(separator);
+            buf.push_str(server.to_string_lossy().as_ref());
+            buf.push_str(separator);
+            buf.push_str(share.to_string_lossy().as_ref());
+        }
+        Prefix::Verbatim(path) | Prefix::DeviceNS(path) => {
+            // \\?\path or \\.\COM1
+            buf.push_str(&path.to_string_lossy())
+        }
+    };
+
+    buf
+}
+
 /// Contract the root component of a path
 ///
 /// Replaces the `top_level_path` in a given `full_path` with the provided
 /// `top_level_replacement`.
-fn contract_path(full_path: &Path, top_level_path: &Path, top_level_replacement: &str) -> String {
-    if !full_path.starts_with(top_level_path) {
-        return replace_c_dir(full_path.to_slash().unwrap());
+fn contract_path(full_path: &Path, top_level_path: &Path, top_level_replacement: &str) -> PathBuf {
+    match full_path.strip_prefix(top_level_path) {
+        Ok(p) => {
+            let mut contracted_path = PathBuf::from(top_level_replacement);
+            if p.to_str() != Some("") {
+                contracted_path.push(p);
+            }
+            contracted_path
+        }
+        Err(_) => full_path.into(),
     }
-
-    if full_path == top_level_path {
-        return replace_c_dir(top_level_replacement.to_string());
-    }
-
-    format!(
-        "{replacement}{separator}{path}",
-        replacement = top_level_replacement,
-        separator = "/",
-        path = replace_c_dir(
-            full_path
-                .strip_prefix(top_level_path)
-                .unwrap()
-                .to_slash()
-                .unwrap()
-        )
-    )
 }
 
-/// Replaces "C://" with "/c/" within a Windows path
+/// Truncate a path to only have a set number of path components
 ///
-/// On non-Windows OS, does nothing
-#[cfg(target_os = "windows")]
-fn replace_c_dir(path: String) -> String {
-    path.replace("C:/", "/c")
-}
+/// Will truncate a path to only show the last `length` components in a path.
+/// If a length of `0` is provided, the path will not be truncated.
+/*
+fn truncate(contracted_path: &Path, length: usize) -> String {
+    if length == 0 {
+        return dir_string;
+    }
 
-/// Replaces "C://" with "/c/" within a Windows path
-///
-/// On non-Windows OS, does nothing
-#[cfg(not(target_os = "windows"))]
-const fn replace_c_dir(path: String) -> String {
-    path
+    let mut components = dir_string.split('/').collect::<Vec<&str>>();
+
+    // If the first element is "" then there was a leading "/" and we should remove it so we can check the actual count of components
+    if components[0] == "" {
+        components.remove(0);
+    }
+
+    if components.len() <= length {
+        return dir_string;
+    }
+
+    let truncated_components = &components[components.len() - length..];
+    truncated_components.join("/")
 }
 
 /// Takes part before contracted path and replaces it with fish style path
@@ -172,6 +273,7 @@ fn to_fish_style(pwd_dir_length: usize, dir_string: String, truncated_dir_string
         .collect::<Vec<_>>()
         .join("/")
 }
+*/
 
 #[cfg(test)]
 mod tests {
@@ -202,7 +304,7 @@ mod tests {
         let home = Path::new("C:\\Users\\astronaut");
 
         let output = contract_path(full_path, home, "~");
-        assert_eq!(output, "~/schematics/rocket");
+        assert_eq!(output, "~\\schematics\\rocket");
     }
 
     #[test]
@@ -212,7 +314,7 @@ mod tests {
         let repo_root = Path::new("C:\\Users\\astronaut\\dev\\rocket-controls");
 
         let output = contract_path(full_path, repo_root, "rocket-controls");
-        assert_eq!(output, "rocket-controls/src");
+        assert_eq!(output, "rocket-controls\\src");
     }
 
     #[test]
