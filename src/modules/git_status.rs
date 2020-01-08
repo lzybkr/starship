@@ -42,17 +42,21 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
         log::debug!("Repo ahead/behind: {:?}", ahead_behind);
     }
 
-    let stash_object = repository.revparse_single("refs/stash");
-    if stash_object.is_ok() {
-        log::debug!("Stash object: {:?}", stash_object);
-    } else {
-        log::trace!("No stash object found");
-    }
+    let no_stashes = {
+        let stash_object = repository.revparse_single("refs/stash");
+        if stash_object.is_ok() {
+            log::debug!("Stash object: {:?}", stash_object);
+        } else {
+            log::trace!("No stash object found");
+        }
 
-    let repo_status = get_repo_status(&repository);
+        stash_object.is_err()
+    };
+
+    let repo_status = get_repo_status(&mut repository);
     log::debug!("Repo status: {:?}", repo_status);
 
-    if ahead_behind.is_err() && stash_object.is_err() && repo_status.is_err() {
+    if ahead_behind.is_err() && no_stashes && repo_status.is_err() {
         return None;
     }
 

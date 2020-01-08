@@ -868,11 +868,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "path-slash"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
 name = "percent-encoding"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

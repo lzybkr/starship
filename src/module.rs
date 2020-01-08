@@ -140,7 +140,7 @@ impl<'a> Module<'a> {
     /// Returns a vector of colored ANSIString elements to be later used with
     /// `ANSIStrings()` to optimize ANSI codes
     pub fn ansi_strings(&self, is_prompt: bool, without_prefix: bool, next_style: &Style) -> Vec<ANSIString> {
-        let ansi_strings = self
+        let mut ansi_strings = self
             .segments
             .iter()
             .map(Segment::ansi_string)
@@ -174,7 +174,7 @@ impl<'a> Module<'a> {
 
 impl<'a> fmt::Display for Module<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let ansi_strings = self.ansi_strings(false, &Style::new());
+        let ansi_strings = self.ansi_strings(false, false, &Style::new());
         write!(f, "{}", ANSIStrings(&ansi_strings))
     }
 }

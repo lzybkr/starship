@@ -42,7 +42,7 @@ pub fn get_prompt(context: Context) -> String {
 
     for (module, next_style) in printable.zip(next_module_styles.iter()) {
         // Skip printing the prefix of a module after the line_break
-        let ansi_strings = module.ansi_strings(print_without_prefix, next_style);
+        let ansi_strings = module.ansi_strings(true, print_without_prefix, next_style);
         write!(buf, "{}", ANSIStrings(&ansi_strings)).unwrap();
         print_without_prefix = module.get_name() == "line_break";
     }
@@ -76,7 +76,7 @@ pub fn explain(args: ArgMatches) {
         .into_iter()
         .filter(|module| !dont_print.contains(&module.get_name().as_str()))
         .map(|module| {
-            let ansi_strings = module.ansi_strings_for_prompt(false);
+            let ansi_strings = module.ansi_strings(false, false, &Style::new());
             let value = module.get_segments().join("");
             ModuleInfo {
                 value: ansi_term::ANSIStrings(&ansi_strings[1..ansi_strings.len() - 1]).to_string(),
